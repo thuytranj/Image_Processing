@@ -219,10 +219,3 @@ def to_grayscale(image: np.ndarray) -> np.ndarray:
             result[row, col] = saturate_to_uint8(gray_value)
 
     return result
-
-
-__all__ = [
-    "brighten",
-    "adjust_contrast",
-    "to_grayscale",
-]
