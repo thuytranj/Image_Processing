@@ -1,7 +1,7 @@
 """
 Phần này tập trung vào 3 phép biến đổi cơ bản:
 1. Tăng sáng bằng phép cộng ma trận.
-2. Điều chỉnh tương phản bằng phép nhân ma trận.
+2. Điều chỉnh tương phản bằng phép biến đổi tuyến tính trên từng pixel.
 3. Chuyển ảnh màu sang ảnh xám bằng tổ hợp tuyến tính các kênh màu.
 
 Mục tiêu:
@@ -123,22 +123,25 @@ def brighten(image: np.ndarray, value: int | float) -> np.ndarray:
     return result
 
 
-def adjust_contrast(image: np.ndarray, factor: int | float) -> np.ndarray:
+def adjust_contrast(image: np.ndarray, alpha: int | float, beta: int | float = 0) -> np.ndarray:
     """
     Chức năng:
-        - Điều chỉnh mức tương phản của ảnh bằng phép nhân mỗi pixel với một hệ số.
+        - Điều chỉnh mức tương phản của ảnh bằng phép biến đổi tuyến tính trên từng pixel.
 
     Ý tưởng:
-        - Nhân toàn bộ ma trận ảnh với một hệ số `factor`. Khi hệ số tăng, các giá trị cường độ 
-        được kéo giãn mạnh hơn.
-        - Công thức:
-            I'(x, y) = I(x, y) * factor
+        - Điều chỉnh độ tương phản của ảnh bằng phép biến đổi:
+            I'(x, y) = alpha * I(x, y) + beta
+          Trong đó:
+            - alpha điều khiển độ tương phản:
+                + alpha > 1: tăng tương phản
+                + 0 < alpha < 1: giảm tương phản
+            - beta điều khiển độ sáng tổng thể sau biến đổi.
+            - Kết quả cuối cùng được chặn về [0, 255].
 
     Tham số:
         - image: Ảnh đầu vào, có thể là ảnh xám HxW hoặc ảnh màu BGR HxWx3.
-        - factor: Hệ số nhân áp dụng cho từng pixel.
-            + `factor > 1`: tăng độ gắt của mức sáng
-            + `0 < factor < 1`: giảm độ biến thiên mức sáng
+        - alpha: Hệ số tương phản.
+        - beta: Giá trị dịch độ sáng sau phép biến đổi.
 
     Kết quả:
         - Trả về một ma trận ảnh mới cùng kích thước với ảnh đầu vào, kiểu dữ liệu `uint8`, sau 
@@ -147,8 +150,8 @@ def adjust_contrast(image: np.ndarray, factor: int | float) -> np.ndarray:
     image = validate_image(image)
 
     # Hệ số âm không phù hợp với ý nghĩa điều chỉnh tương phản cơ bản trong bài này.
-    if factor < 0:
-        raise ValueError("factor nên là số không âm")
+    if alpha < 0:
+        raise ValueError("alpha nên là số không âm")
 
     height, width = image.shape[:2]
 
@@ -158,8 +161,8 @@ def adjust_contrast(image: np.ndarray, factor: int | float) -> np.ndarray:
 
         for row in range(height):
             for col in range(width):
-                # Nhân giá trị pixel với hệ số tương phản.
-                new_value = float(image[row, col]) * float(factor)
+                # Áp dụng công thức điều chỉnh tương phản cho mỗi pixel.
+                new_value = float(image[row, col]) * float(alpha) + float(beta)
                 # Chặn kết quả về miền hợp lệ của ảnh 8-bit.
                 result[row, col] = saturate_to_uint8(new_value)
 
@@ -172,7 +175,7 @@ def adjust_contrast(image: np.ndarray, factor: int | float) -> np.ndarray:
         for col in range(width):
             for channel in range(3):
                 # Nhân riêng từng kênh B, G, R với cùng một hệ số.
-                new_value = float(image[row, col, channel]) * float(factor)
+                new_value = float(image[row, col, channel]) * float(alpha) + float(beta)
                 result[row, col, channel] = saturate_to_uint8(new_value)
 
     return result
