@@ -56,11 +56,11 @@ def apply_kernel(matrix, kernel, padding_mode='reflect', normalize=True):
         # Xử lý hình ảnh grayscale hoặc từng kênh riêng
         result = convolve(matrix.astype(np.float32), kernel, mode=padding_mode)
     
-    # Normalize kết quả về khoảng [0, 255]
+    # Khi normalize=False, giữ float để bảo toàn giá trị âm/dương cho các phép như Laplacian.
     if normalize:
         result = np.clip(result, 0, 255).astype(np.uint8)
     else:
-        result = result.astype(np.uint8)
+        result = result.astype(np.float32)
     
     return result
 
