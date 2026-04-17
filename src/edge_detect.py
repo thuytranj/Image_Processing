@@ -10,6 +10,83 @@ import numpy as np
 from typing import Tuple
 
 
+def _to_grayscale_float(image: np.ndarray) -> np.ndarray:
+    """Convert input image to grayscale float32."""
+    if image.ndim == 3:
+        return (0.114 * image[:, :, 0] + 0.587 * image[:, :, 1] + 0.299 * image[:, :, 2]).astype(np.float32)
+    return image.astype(np.float32)
+
+
+def _gaussian_kernel(size: int = 5, sigma: float = 1.4) -> np.ndarray:
+    """Create a normalized 2D Gaussian kernel."""
+    if size % 2 == 0:
+        raise ValueError("size phải là số lẻ")
+    half = size // 2
+    x, y = np.mgrid[-half:half + 1, -half:half + 1]
+    kernel = np.exp(-(x**2 + y**2) / (2 * sigma**2))
+    kernel = kernel / np.sum(kernel)
+    return kernel.astype(np.float32)
+
+
+def _non_maximum_suppression(magnitude: np.ndarray, angle_deg: np.ndarray) -> np.ndarray:
+    """Thin edges by keeping only local maxima along gradient direction."""
+    h, w = magnitude.shape
+    out = np.zeros((h, w), dtype=np.float32)
+
+    for i in range(1, h - 1):
+        for j in range(1, w - 1):
+            angle = angle_deg[i, j]
+
+            if (0 <= angle < 22.5) or (157.5 <= angle <= 180):
+                q = magnitude[i, j + 1]
+                r = magnitude[i, j - 1]
+            elif 22.5 <= angle < 67.5:
+                q = magnitude[i + 1, j - 1]
+                r = magnitude[i - 1, j + 1]
+            elif 67.5 <= angle < 112.5:
+                q = magnitude[i + 1, j]
+                r = magnitude[i - 1, j]
+            else:
+                q = magnitude[i - 1, j - 1]
+                r = magnitude[i + 1, j + 1]
+
+            if magnitude[i, j] >= q and magnitude[i, j] >= r:
+                out[i, j] = magnitude[i, j]
+
+    return out
+
+
+def _double_threshold(image: np.ndarray, low_threshold: float, high_threshold: float) -> Tuple[np.ndarray, int, int]:
+    """Classify pixels into strong, weak and non-edge."""
+    strong = 255
+    weak = 75
+    out = np.zeros_like(image, dtype=np.uint8)
+
+    strong_i, strong_j = np.where(image >= high_threshold)
+    weak_i, weak_j = np.where((image >= low_threshold) & (image < high_threshold))
+
+    out[strong_i, strong_j] = strong
+    out[weak_i, weak_j] = weak
+    return out, weak, strong
+
+
+def _hysteresis(image: np.ndarray, weak: int, strong: int) -> np.ndarray:
+    """Promote weak edges connected to strong edges, suppress others."""
+    h, w = image.shape
+    out = image.copy()
+
+    for i in range(1, h - 1):
+        for j in range(1, w - 1):
+            if out[i, j] == weak:
+                neighborhood = out[i - 1:i + 2, j - 1:j + 2]
+                if np.any(neighborhood == strong):
+                    out[i, j] = strong
+                else:
+                    out[i, j] = 0
+
+    return out
+
+
 # ─────── PHẦN 1: HÀM TÍCH CHẬP CHUNG ───────
 def apply_kernel(image: np.ndarray, kernel: np.ndarray, padding: str = "same") -> np.ndarray:
     """
@@ -139,11 +216,35 @@ def canny_edges(image: np.ndarray, low_threshold: float = 50, high_threshold: fl
     Kết quả:
         ảnh biên cạnh nhị phân (uint8)
     """
-    # Bước 1: Sử dụng Sobel để tính gradient
-    Gx, Gy, magnitude = sobel_edges(image)
-    
-    # Bước 2: Ngưỡng hóa đơn giản (chỉ lấy gradient mạnh)
-    edges = np.zeros_like(magnitude)
-    edges[magnitude > high_threshold] = 255
-    
-    return edges
+    # Bước 1: Gaussian blur để giảm nhiễu
+    gray = _to_grayscale_float(image)
+    blur_kernel = _gaussian_kernel(size=5, sigma=1.4)
+    smoothed = apply_kernel(gray, blur_kernel, padding="same")
+
+    # Bước 2: Tính gradient bằng Sobel
+    sobel_x = np.array([[-1, 0, 1],
+                        [-2, 0, 2],
+                        [-1, 0, 1]], dtype=np.float32)
+    sobel_y = np.array([[-1, -2, -1],
+                        [0,  0,  0],
+                        [1,  2,  1]], dtype=np.float32)
+
+    gx = apply_kernel(smoothed, sobel_x, padding="same")
+    gy = apply_kernel(smoothed, sobel_y, padding="same")
+
+    magnitude = np.hypot(gx, gy)
+    if magnitude.max() > 0:
+        magnitude = (magnitude / magnitude.max()) * 255.0
+
+    angle = np.rad2deg(np.arctan2(gy, gx))
+    angle[angle < 0] += 180
+
+    # Bước 3: Non-maximum suppression
+    nms = _non_maximum_suppression(magnitude, angle)
+
+    # Bước 4: Double threshold
+    thresholded, weak, strong = _double_threshold(nms, low_threshold, high_threshold)
+
+    # Bước 5: Edge tracking by hysteresis
+    edges = _hysteresis(thresholded, weak, strong)
+    return edges.astype(np.uint8)
